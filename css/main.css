@@ -1,0 +1,43 @@
+:root {
+  --lime-600: #84cc16;
+  --lime-700: #65a30d;
+  --muted: #6b7280;
+  --card-bg: #ffffff;
+  --page-bg: #f7fdf4;
+  --accent: #5be23b;
+}
+
+html, body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: var(--page-bg);
+}
+
+.market-hero {
+  background: linear-gradient(90deg, rgba(132,204,22,0.06), rgba(37,99,235,0.02));
+  border: 1px solid rgba(132,204,22,0.08);
+}
+
+.custom-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+.custom-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 6px; }
+
+.badge {
+  font-size: .72rem;
+  padding: .18rem .5rem;
+  border-radius: 999px;
+}
+
+.app-max { max-width: 1200px; }
+
+@media (min-width: 1280px) {
+  .app-max { max-width: 1400px; }
+}
+
+.header-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+.btn-ghost {
+  background: white;
+  border: 1px solid #e5e7eb;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: #374151;
+}
