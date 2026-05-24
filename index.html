@@ -1,4 +1,5 @@
-html lang="en">
+<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -152,3 +153,1176 @@ html lang="en">
   </div>
  
   <script>
+
+	const APP_KEY = 'palengke_cainta_v4';
+	let products = [];
+	let orders = [];
+	let cart = [];
+	let users = [];
+	let currentUser = null; 
+	let view = 'shop'; 
+ 
+	function save(k, v){ localStorage.setItem(APP_KEY + '_' + k, JSON.stringify(v)); }
+	function load(k, fallback){ try { const d = localStorage.getItem(APP_KEY + '_' + k); return d ? JSON.parse(d) : fallback; } catch(e){ return fallback; } }
+ 
+	
+	function computeRemainingDays(p){
+		if(!p || !p.preorder) return null;
+		const start = p.preorderStart || 0;
+		const duration = p.preorderDuration || 0; 
+		const end = start + duration * 24 * 60 * 60 * 1000;
+		const now = Date.now();
+		const rem = Math.ceil((end - now) / (1000 * 60 * 60 * 24));
+		return rem;
+	}
+	function updatePreorderStatuses(){
+		let changed = false;
+		for(const p of products){
+			if(p.preorder){
+				const rem = computeRemainingDays(p);
+				if(rem <= 0){
+					
+					delete p.preorder;
+					delete p.preorderDuration;
+					delete p.preorderStart;
+					changed = true;
+				}
+			}
+		}
+		if(changed) save('products', products);
+	}
+ 
+	
+	function seed(){
+		
+		products = load('products', [
+			{ id: 1, name: "Fresh Tilapia", origin: "San Juan Fish Farm", farmer: { name: "Mang Jose", contact: "0917-234-5678" }, price: 150.00, quantity: 50, unit: 'kg', imgUrl: 'https://placehold.co/600x360/4ade80/000?text=Tilapia' },
+			{ id: 2, name: "Native Chicken Eggs", origin: "Brgy. San Andres Poultry", farmer: { name: "Aling Nena", contact: "0998-765-4321" }, price: 8.00, quantity: 200, unit: 'pc', imgUrl: 'https://placehold.co/600x360/84cc16/000?text=Eggs' },
+			{ id: 3, name: "Organic Lettuce", origin: "Sta. Lucia Hydroponics", farmer: { name: "Mr. Dela Cruz", contact: "0920-111-2222" }, price: 65.00, quantity: 30, unit: 'head', imgUrl: 'https://placehold.co/600x360/4ade80/000?text=Lettuce' },
+			{ id: 4, name: "Ripe Bananas (Lakatan)", origin: "Cainta Farm Cooperative", farmer: { name: "Ate Sol", contact: "0905-333-4444" }, price: 50.00, quantity: 80, unit: 'kg', imgUrl: 'https://placehold.co/600x360/84cc16/000?text=Bananas' },
+		]);
+ 
+		
+		orders = load('orders', [
+			{ id: 'O-20240001', items: [{ productId: 1, name: "Fresh Tilapia", quantity: 2, price: 150, unit: 'kg' }], total: 300.00, status: 'Out for Delivery', customer: 'Juan Dela Cruz', email: 'juan@example.com', contact:'0917-000-0000', address:'Cainta, Rizal', date: new Date().toLocaleString() }
+		]);
+ 
+		
+		users = load('users', [
+			{ email: 'monic@palengke.com', name: 'Monic', password: '123', role: 'admin' },
+			
+			{ email: 'juan@example.com', name: 'Juan Dela Cruz', password: 'password', role: 'customer' }
+		]);
+ 
+		cart = load('cart', []); 
+		currentUser = load('currentUser', null);
+ 
+		
+		save('products', products);
+		save('orders', orders);
+		save('users', users);
+		save('cart', cart);
+		save('currentUser', currentUser);
+ 
+		
+		updatePreorderStatuses();
+	}
+ 
+
+	function $(sel){ return document.querySelector(sel); }
+	function $all(sel){ return Array.from(document.querySelectorAll(sel)); }
+	function formatPeso(n){ return '₱' + Number(n).toLocaleString('en-PH', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+	function uid(){ return Date.now().toString().slice(-8); }
+
+function uploadImagePreview(fileInputId, previewImgId){
+    const fi = document.getElementById(fileInputId);
+    const img = document.getElementById(previewImgId);
+    if(!fi || !fi.files || fi.files.length === 0) return;
+    const f = fi.files[0];
+    const reader = new FileReader();
+    reader.onload = function(e){
+        img.src = e.target.result;
+        img.dataset.uploaded = '1'; 
+    };
+    reader.readAsDataURL(f);
+}
+
+
+	function icons(){ if(window.lucide) lucide.createIcons(); }
+ 
+
+	function showModal(titleHtml, contentHtml, actionsHtml = '') {
+		const overlay = $('#modal-overlay');
+		const modal = $('#modal');
+		modal.innerHTML = `
+			<div class="p-5">
+			  <div class="flex items-start justify-between gap-4">
+				<div class="flex-1">
+				  <h3 class="text-xl font-bold text-gray-800">${titleHtml}</h3>
+				  </div>
+				  <div><button onclick="hideModal()" class="text-gray-500 hover:text-gray-700"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+			  </div>
+			  <div class="mt-4 text-gray-700">${contentHtml}</div>
+			</div>
+			<div class="bg-gray-50 p-4 flex justify-end gap-3">
+			  ${actionsHtml}
+			</div>
+		`;
+		overlay.classList.remove('hidden');
+		overlay.style.display = 'flex';
+		icons();
+	}
+	function hideModal(){ $('#modal-overlay').classList.add('hidden'); $('#modal-overlay').style.display = 'none'; }
+ 
+	function updateAuthArea(){
+		const container = $('#auth-area');
+		const headerActions = $('#header-actions');
+		if(!container || !headerActions) return;
+ 
+
+		const cartBtn = $('#cart-btn');
+		if(cartBtn) cartBtn.style.display = (currentUser && currentUser.role === 'admin') ? 'none' : '';
+ 
+		if(currentUser){
+
+			container.innerHTML = `
+		  	<div class="relative inline-block">
+				<button id="user-menu-btn" class="px-3 py-2 rounded-lg bg-white border flex items-center gap-2">
+				  <i data-lucide="user" class="w-4 h-4 text-gray-700"></i>
+				  <span class="text-sm font-medium">${currentUser.name}</span>
+				  <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500"></i>
+				  </button>
+				<div id="user-menu" class="hidden absolute right-0 mt-2 w-56 bg-white rounded shadow p-2">
+				  ${currentUser.role === 'admin' ? `<button onclick="goAdmin()" class="w-full text-left px-2 py-2 rounded hover:bg-gray-50">Admin Dashboard</button>` : `<button onclick="switchTo('orders'); hideUserMenu();" class="w-full text-left px-2 py-2 rounded hover:bg-gray-50">My Orders</button>`}
+				  <button onclick="logoutUser()" class="w-full text-left px-2 py-2 mt-1 rounded bg-red-50 text-red-600 hover:bg-red-100">Logout</button>
+				</div>
+				</div>
+			`;
+
+			headerActions.innerHTML = `
+			  <button id="header-logout" onclick="logoutUser()" class="btn-ghost">Logout</button>
+			  ${currentUser.role === 'admin' && view === 'admin' ? `<button id="exit-admin-btn" onclick="exitAdmin()" class="btn-ghost">Exit Admin</button>` : ''}
+			`;
+		} else {
+			container.innerHTML = `
+		  	<div class="flex gap-2">
+				<button onclick="openAuth('login')" class="px-3 py-2 rounded-lg bg-white border text-gray-700">Log in</button>
+				<button onclick="openAuth('signup')" class="px-3 py-2 rounded-lg bg-lime-600 text-white">Sign up</button>
+			</div>
+			`;
+			headerActions.innerHTML = '';
+		}
+		icons();
+
+		const btn = document.getElementById('user-menu-btn');
+		if(btn){
+			btn.addEventListener('click', (e) => {
+			const menu = document.getElementById('user-menu');
+			if(menu) menu.classList.toggle('hidden');
+			});
+		}
+	}
+ 
+	function openAuth(mode = 'login'){
+		if(mode === 'login'){
+			showModal('Log in', `
+			<form id="login-form" class="grid gap-3">
+				<input id="login-email" type="email" placeholder="Email or name" class="p-2 border rounded" required />
+				<input id="login-password" type="password" placeholder="Password" class="p-2 border rounded" required />
+			  </form>
+		`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+			<button onclick="loginUser()" class="px-4 py-2 bg-lime-600 text-white rounded">Log in</button>`);
+		} else {
+			showModal('Sign up (Customer)', `
+			<form id="signup-form" class="grid gap-3">
+				<input id="signup-name" placeholder="Full name" class="p-2 border rounded" required />
+				<input id="signup-email" type="email" placeholder="Email" class="p-2 border rounded" required />
+				<input id="signup-password" type="password" placeholder="Password" class="p-2 border rounded" required />
+			    <input id="signup-contact" placeholder="Contact number (optional)" class="p-2 border rounded" />
+			  </form>
+		`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+			<button onclick="signupUser()" class="px-4 py-2 bg-lime-600 text-white rounded">Create account</button>`);
+		}
+	}
+ 
+	function signupUser(){
+		const name = $('#signup-name').value?.trim();
+		const email = $('#signup-email').value?.trim()?.toLowerCase();
+		const pass = $('#signup-password').value;
+		const contact = $('#signup-contact').value?.trim() || '';
+		if(!name || !email || !pass) return showModal('Missing fields', 'Please fill all required signup fields.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		
+		if(email === 'monic@palengke.com' || name.toLowerCase() === 'monic') return showModal('Reserved', 'This account name/email is reserved for admin.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		if(users.find(u => u.email === email)) return showModal('Account exists', 'An account with this email already exists. Try logging in.', `<button onclick="hideModal(); openAuth('login')" class="px-4 py-2 bg-lime-600 text-white rounded">Log in</button>`);
+		const newUser = { email, name, password: pass, role: 'customer', contact };
+	  	users.push(newUser);
+		save('users', users);
+		currentUser = { email, name, role: 'customer' };
+		save('currentUser', currentUser);
+		hideModal();
+		updateAuthArea();
+		renderMain();
+		showModal('Welcome!', `Account created and logged in as <b>${name}</b>.`, `<button onclick="hideModal(); renderMain()" class="px-4 py-2 bg-lime-600 text-white rounded">OK</button>`);
+	}
+ 
+	function loginUser(){
+		let emailOrName = $('#login-email').value?.trim();
+		const pass = $('#login-password').value;
+		if(!emailOrName || !pass) return showModal('Missing fields', 'Please fill both email/name and password.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		const lookup = emailOrName.toLowerCase();
+ 
+		let found = null;
+		for(const usr of users){
+			const matchesEmail = usr.email && usr.email.toLowerCase() === lookup;
+			const matchesName  = usr.name && usr.name.toLowerCase() === lookup;
+			if((matchesEmail || matchesName) && usr.password === pass){ found = usr; break; }
+		}
+ 
+		const userObj = found;
+ 
+		if(!userObj) return showModal('Invalid credentials', 'Email/name or password incorrect.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		currentUser = { email: userObj.email, name: userObj.name, role: userObj.role };
+		save('currentUser', currentUser);
+		hideModal();
+		updateAuthArea();
+		renderMain();
+
+const notifications = load('notifications', []);
+const myNotes = notifications.filter(n => n.to === currentUser.email);
+if(myNotes.length){
+    const msgs = myNotes.map(n => `<div class="py-2"><b>${n.date}</b><div>${n.message}</div></div>`).join('');
+
+    const remaining = notifications.filter(n => n.to !== currentUser.email);
+    save('notifications', remaining);
+    showModal('Notifications', `<div class="max-h-64 overflow-auto">${msgs}</div>`, `<button onclick="hideModal();" class="px-4 py-2 bg-lime-600 text-white rounded">OK</button>`);
+} else {
+    showModal('Logged in', `Welcome back, <b>${currentUser.name}</b>!`, `<button onclick="hideModal(); renderMain()" class="px-4 py-2 bg-lime-600 text-white rounded">OK</button>`);
+}
+
+	}
+ 
+	function logoutUser(){
+   
+    if(currentUser && currentUser.role === 'customer'){
+        cart = [];
+        save('cart', cart);
+    }
+    currentUser = null;
+    save('currentUser', null);
+    updateAuthArea();
+    renderMain();
+    showModal('Logged out', 'You have been logged out.', `<button onclick="hideModal()" class="px-4 py-2 bg-lime-600 text-white rounded">OK</button>`);
+}
+
+ 
+	function exitAdmin(){
+
+		view = 'shop';
+		renderMain();
+		hideUserMenu();
+	}
+ 
+	function goAdmin(){
+		view = 'admin';
+		renderMain();
+		hideUserMenu();
+	}
+ 
+	function hideUserMenu(){
+		const menu = document.getElementById('user-menu');
+		if(menu) menu.classList.add('hidden');
+	}
+ 
+	
+	function toggleCartDrawer(show) {
+		const drawer = $('#cart-drawer');
+		if (typeof show === 'boolean') {
+		    drawer.classList.toggle('hidden', !show);
+		} else {
+		    drawer.classList.toggle('hidden');
+		}
+		renderCartDrawer();
+	}
+ 
+	function updateCartBadge() {
+		const cnt = cart.reduce((s,i)=>s + Number(i.quantity), 0);
+	    $('#cart-badge').textContent = cnt;
+		save('cart', cart);
+	}
+ 
+	function renderCartDrawer(){
+		const body = $('#cart-drawer-body');
+		if (!body) return;
+		if (cart.length === 0) {
+			body.innerHTML = `<div class="text-center py-12 text-gray-500">Your cart is empty — add fresh products from the shop.</div>`;
+		    $('#cart-subtotal').textContent = formatPeso(0);
+		    updateCartBadge();
+			icons();
+			return;
+ 	 	 }
+		const itemsHtml = cart.map(it => {
+			return `
+		  	<div class="flex items-center gap-3 py-3 border-b">
+				<div class="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
+				  <img src="${(products.find(p => p.id === it.productId) || {imgUrl:''}).imgUrl}" alt="${it.name}" class="object-cover w-full h-full">
+				  </div>
+				<div class="flex-1">
+				  <div class="font-medium text-gray-800">${it.name}</div>
+				  <div class="text-sm text-gray-500">${it.quantity} x ${formatPeso(it.price)} / ${it.unit}</div>
+				  </div>
+				<div class="text-right">
+				  <div class="font-semibold text-gray-800">${formatPeso(it.price * it.quantity)}</div>
+				  <div class="flex gap-1 mt-2 justify-end">
+				    <button onclick="changeCartItem(${it.productId}, ${it.quantity - 1})" class="px-2 py-1 rounded-md text-sm bg-gray-100">-</button>
+				    <button onclick="changeCartItem(${it.productId}, ${it.quantity + 1})" class="px-2 py-1 rounded-md text-sm bg-gray-100">+</button>
+				    <button onclick="removeCartItem(${it.productId})" class="px-2 py-1 rounded-md text-sm bg-red-50 text-red-600">Remove</button>
+				  </div>
+ 			 	 </div>
+		  	</div>
+			`;
+		}).join('');
+		body.innerHTML = itemsHtml;
+		const subtotal = cart.reduce((s,i)=> s + (i.price * i.quantity), 0);
+	    $('#cart-subtotal').textContent = formatPeso(subtotal);
+	    updateCartBadge();
+		icons();
+	}
+ 
+	
+	function addToCart(productId, qty = 1){
+    const p = products.find(x=> x.id === productId);
+    if(!p) return showModal('Error', 'Product not found', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded">OK</button>`);
+
+    if(!currentUser) return showModal('Login required', 'Please log in or create an account to add items to your cart.', `<button onclick="hideModal(); openAuth('login')" class="px-4 py-2 bg-lime-600 text-white rounded">Log in</button><button onclick="hideModal(); openAuth('signup')" class="px-4 py-2 bg-white border rounded">Sign up</button>`);
+ 
+    if(p.preorder) return showModal('Pre-Order Item', `${p.name} is currently on pre-order. Use the Pre-Order button to reserve it.`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    if(p.quantity <= 0) return showModal('Out of stock', `${p.name} is out of stock.`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded">OK</button>`);
+    const idx = cart.findIndex(c => c.productId === productId && !c.preordered);
+    if(idx >= 0){
+
+        if(p.quantity < qty) return showModal('Not enough stock', `Only ${p.quantity} ${p.unit} left in stock.`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded">OK</button>`);
+        cart[idx].quantity += qty;
+    } else {
+        cart.push({ productId: p.id, name: p.name, price: p.price, quantity: qty, unit: p.unit, preordered: false });
+    }
+    p.quantity = Math.max(0, p.quantity - qty);
+    save('products', products);
+    save('cart', cart);
+    renderCartDrawer();
+    toggleCartDrawer(true);
+  }
+
+ 
+function preOrderItem(productId, qty = 1){
+    const p = products.find(x=> x.id === productId);
+    if(!p) return showModal('Error', 'Product not found', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-200 rounded">OK</button>`);
+    if(!p.preorder) return showModal('Not pre-order', 'This product is not marked as pre-order.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    if(!currentUser) return showModal('Login required', 'Please log in or create an account to pre-order.', `<button onclick="hideModal(); openAuth('login')" class="px-4 py-2 bg-lime-600 text-white rounded">Log in</button>`);
+
+    const idx = cart.findIndex(c => c.productId === productId && c.preordered === true);
+    if(idx >= 0){
+        cart[idx].quantity += qty;
+    } else {
+        cart.push({ productId: p.id, name: p.name, price: p.price, quantity: qty, unit: p.unit, preordered: true });
+    }
+    save('cart', cart);
+    renderCartDrawer();
+    toggleCartDrawer(true);
+}
+
+	function changeCartItem(pid, newQty){
+		const idx = cart.findIndex(c=> c.productId === pid);
+		if(idx === -1) return;
+		if(newQty <= 0) return removeCartItem(pid);
+		const oldQty = cart[idx].quantity;
+		const diff = newQty - oldQty;
+		const product = products.find(p=> p.id === pid);
+		if(diff > 0 && product && product.quantity < diff) {
+			return showModal('Not enough stock', `Only ${product.quantity} ${product.unit} left in stock.`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		}
+		if(product) product.quantity = Math.max(0, product.quantity - diff * 1 * (diff > 0 ? 1 : -1));
+		cart[idx].quantity = newQty;
+		save('cart', cart); save('products', products);
+		renderCartDrawer();
+		renderMain();
+	}
+ 
+	function removeCartItem(pid){
+		const idx = cart.findIndex(c=> c.productId === pid);
+		if(idx === -1) return;
+		const item = cart[idx];
+		const product = products.find(p=> p.id === pid);
+		if(product) product.quantity += item.quantity;
+		cart.splice(idx,1);
+		save('cart', cart); save('products', products);
+		renderCartDrawer();
+		renderMain();
+	}
+ 
+	function checkout(){
+		if(cart.length === 0) {
+			return showModal('Cart is empty', 'Please add items to your cart first.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		}
+
+		if(!currentUser){
+			return showModal('Login required', 'Please log in or create an account to place your order.', `<button onclick="hideModal(); openAuth('login')" class="px-4 py-2 bg-lime-600 text-white rounded">Log in</button><button onclick="hideModal(); openAuth('signup')" class="px-4 py-2 bg-white border rounded">Sign up</button>`);
+		}
+		const subtotal = cart.reduce((s,i)=> s + i.price * i.quantity, 0);
+		showModal('Checkout', `
+		<div>
+		  <div class="text-sm text-gray-600 mb-3">Order total: <span class="font-bold text-lime-700">${formatPeso(subtotal)}</span></div>
+		  <form id="checkout-form" class="grid gap-3">
+			<input id="customer-name" value="${currentUser.name}" required placeholder="Full name" class="p-2 border rounded" />
+			<input id="customer-contact" value="${(users.find(u=>u.email===currentUser.email)?.contact)||''}" required placeholder="Contact number (09XX-XXX-XXXX)" class="p-2 border rounded" />
+		    <textarea id="customer-address" required placeholder="unit number, building name, street, city, region, zip code" class="p-2 border rounded"></textarea>
+			<div class="text-sm text-gray-500">Payment: Cash on Delivery (COD)</div>
+		  </form>
+		</div>
+	`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+	 	<button onclick="placeOrder()" class="px-4 py-2 bg-lime-600 text-white rounded">Place Order</button>`);
+	}
+ 
+	function placeOrder(){
+    const name = $('#customer-name').value?.trim();
+    const contact = $('#customer-contact').value?.trim();
+    const address = $('#customer-address').value?.trim();
+    if(!name || !contact || !address) return showModal('Missing info', 'Please fill all checkout fields', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    const newId = 'O-' + uid();
+    const itemsCopy = cart.map(i=> ({ ...i }));
+    const total = itemsCopy.reduce((s,i)=> s + i.price * i.quantity, 0);
+    const isPreorderOrder = itemsCopy.some(it => it.preordered === true);
+    const newOrder = { id: newId, items: itemsCopy, total, status: isPreorderOrder ? 'Pre-Order Received' : 'Preparing Order', type: isPreorderOrder ? 'pre-order' : 'regular', customer: name, email: currentUser.email, contact, address, date: new Date().toLocaleString() };
+    orders.unshift(newOrder);
+    save('orders', orders);
+
+    cart = [];
+    save('cart', cart);
+
+    toggleCartDrawer(false);
+    hideModal();
+    showModal('Order Placed!', `<div class="text-gray-700">Thank you <b>${name}</b>! Your order <b>${newId}</b> for <b>${formatPeso(total)}</b> has been received.</div>`, `<button onclick="hideModal(); switchTo('orders'); renderMain();" class="px-4 py-2 bg-lime-600 text-white rounded">OK</button>`);
+    renderMain();
+}
+
+
+	function adminAddProduct(){
+    if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+
+    showModal('Add New Product', `
+    <form id="product-form" class="grid gap-3">
+    <input id="p-name" placeholder="Product name" class="p-2 border rounded" />
+    <div class="grid grid-cols-3 gap-2">
+        <input id="p-price" type="number" step="0.01" placeholder="Price (₱)" class="p-2 border rounded col-span-1" />
+        <input id="p-qty" type="number" placeholder="Quantity" class="p-2 border rounded" />
+        <select id="p-unit" class="p-2 border rounded">
+          <option value="kg">kg</option>
+          <option value="pc">pc</option>
+          <option value="bundle">Bundle</option>
+        </select>
+    </div>
+    <input id="p-origin" placeholder="Origin (Farm name)" class="p-2 border rounded" />
+    <div class="grid grid-cols-2 gap-2">
+        <input id="p-farmer" placeholder="Farmer name" class="p-2 border rounded" />
+        <input id="p-contact" placeholder="Farmer contact" class="p-2 border rounded" />
+    </div>
+    <div class="flex items-center gap-3">
+        <input id="p-img-file" type="file" accept="image/*" class="p-2" />
+        <button type="button" onclick="uploadImagePreview('p-img-file','p-img-preview')" class="px-3 py-2 bg-white border rounded">Upload</button>
+        <img id="p-img-preview" src="" alt="preview" class="w-20 h-14 object-cover rounded border" />
+    </div>
+    <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2"><input id="p-preorder" type="checkbox"/> <span class="text-sm">Pre-Order</span></label>
+        <input id="p-preorder-duration" type="number" min="7" max="14" placeholder="Duration (7-14 days)" class="p-2 border rounded w-48" />
+    </div>
+    </form>
+    `, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+        <button onclick="adminSaveProduct()" class="px-4 py-2 bg-lime-600 text-white rounded">Create</button>`);
+}
+
+ 
+	function adminSaveProduct(editId = null){
+    if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    const name = $('#p-name').value?.trim();
+    const price = parseFloat($('#p-price').value);
+    const qty = parseInt($('#p-qty').value);
+    const unit = $('#p-unit').value?.trim();
+    const origin = $('#p-origin').value?.trim();
+    const farmer = $('#p-farmer').value?.trim();
+    const contact = $('#p-contact').value?.trim();
+ 
+    const preview = $('#p-img-preview');
+    let img = (preview && preview.src && preview.src.length>0) ? preview.src : ($('#p-img') ? $('#p-img').value?.trim() : '');
+    if(!img) img = `https://placehold.co/600x360/4ade80/000?text=${encodeURIComponent(name || 'Product')}`;
+    const isPre = $('#p-preorder')?.checked;
+    const dur = parseInt($('#p-preorder-duration')?.value) || null;
+    if(!name || isNaN(price) || isNaN(qty) || !unit || !origin || !farmer || !contact){
+        return showModal('Missing fields', 'Please fill all product fields correctly.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    }
+    if(editId){
+        const idx = products.findIndex(p=> p.id === editId);
+        if(idx >= 0){
+            const prev = products[idx];
+            products[idx] = { ...products[idx], name, price, quantity: qty, unit, origin, farmer: { name: farmer, contact }, imgUrl: img };
+            if(isPre){
+                products[idx].preorder = true;
+                products[idx].preorderDuration = Math.min(14, Math.max(7, (dur || 7)));
+                products[idx].preorderStart = products[idx].preorderStart || Date.now();
+            } else {
+               
+                if(prev.preorder){
+                    const affectedOrders = orders.filter(o => o.items && o.items.some(it => it.productId === editId && it.preordered));
+                    const notifications = load('notifications', []);
+                    for(const o of affectedOrders){
+                        notifications.unshift({
+                            to: o.email,
+                            date: new Date().toLocaleString(),
+                            message: `Your pre-order items from order ${o.id} are now available: ${name}. Please expect fulfillment soon.`,
+                            orderId: o.id,
+                            productId: editId
+                        });
+                    }
+                    save('notifications', notifications);
+                }
+                delete products[idx].preorder; delete products[idx].preorderDuration; delete products[idx].preorderStart;
+            }
+        }
+    } else {
+        const newId = Date.now();
+        const newProd = { id: newId, name, price, quantity: qty, unit, origin, farmer: { name: farmer, contact }, imgUrl: img };
+        if(isPre){
+            newProd.preorder = true;
+            newProd.preorderDuration = Math.min(14, Math.max(7, (dur || 7)));
+            newProd.preorderStart = Date.now();
+        }
+        products.unshift(newProd);
+    }
+    save('products', products);
+    hideModal();
+    renderMain();
+}
+
+ 
+	function adminEditProduct(id){
+    if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    const p = products.find(x=> x.id === id);
+    if(!p) return;
+ 
+    showModal('Edit Product', `
+    <form id="product-form" class="grid gap-3">
+    <input id="p-name" value="${p.name}" placeholder="Product name" class="p-2 border rounded" />
+    <div class="grid grid-cols-3 gap-2">
+        <input id="p-price" type="number" step="0.01" value="${p.price}" placeholder="Price (₱)" class="p-2 border rounded col-span-1" />
+        <input id="p-qty" type="number" value="${p.quantity}" placeholder="Quantity" class="p-2 border rounded" />
+        <select id="p-unit" class="p-2 border rounded">
+          <option value="kg" ${p.unit === 'kg' ? 'selected' : ''}>kg</option>
+          <option value="pc" ${p.unit === 'pc' ? 'selected' : ''}>pc</option>
+          <option value="bundle" ${p.unit === 'bundle' ? 'selected' : ''}>Bundle</option>
+        </select>
+    </div>
+    <input id="p-origin" value="${p.origin}" placeholder="Origin (Farm name)" class="p-2 border rounded" />
+    <div class="grid grid-cols-2 gap-2">
+        <input id="p-farmer" value="${p.farmer.name}" placeholder="Farmer name" class="p-2 border rounded" />
+        <input id="p-contact" value="${p.farmer.contact}" placeholder="Farmer contact" class="p-2 border rounded" />
+    </div>
+    <div class="flex items-center gap-3">
+        <input id="p-img-file" type="file" accept="image/*" class="p-2" />
+        <button type="button" onclick="uploadImagePreview('p-img-file','p-img-preview')" class="px-3 py-2 bg-white border rounded">Upload</button>
+        <img id="p-img-preview" src="${p.imgUrl || ''}" alt="preview" class="w-28 h-16 object-cover rounded border" />
+    </div>
+    <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2"><input id="p-preorder" type="checkbox" ${p.preorder ? 'checked' : ''}/> <span class="text-sm">Pre-Order</span></label>
+        <input id="p-preorder-duration" type="number" min="7" max="14" value="${p.preorderDuration || ''}" placeholder="Duration (7-14 days)" class="p-2 border rounded w-48" />
+    </div>
+    </form>
+    `, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+         <button onclick="adminSaveProduct(${id})" class="px-4 py-2 bg-lime-600 text-white rounded">Save</button>`);
+}
+
+ 
+	function adminDeleteProduct(id){
+		if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		showModal('Confirm delete', `Are you sure you want to delete this product?`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+		<button onclick="adminConfirmDelete(${id})" class="px-4 py-2 bg-red-600 text-white rounded">Delete</button>`);
+	}
+
+	function adminConfirmDelete(id){
+ 
+    const prodToDelete = products.find(p => p.id === id);
+    const deleteLogs = load('deleteLogs', []);
+    deleteLogs.unshift({
+        id: 'DEL-' + uid(),
+        itemType: 'product',
+        itemId: id,
+        deletedBy: currentUser ? currentUser.email : 'unknown',
+        date: new Date().toLocaleString(),
+        snapshot: prodToDelete || null
+    });
+    save('deleteLogs', deleteLogs);
+
+    products = products.filter(p => p.id !== id);
+    save('products', products);
+    hideModal();
+    renderMain();
+}
+
+ 
+
+	function adminViewOrder(id){
+		if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		const o = orders.find(x=> x.id === id);
+		if(!o) return;
+		const items = o.items.map(it => `<li class="flex justify-between"><span>${it.quantity} × ${it.name} (${it.unit})</span><span>${formatPeso(it.price * it.quantity)}</span></li>`).join('');
+		showModal(`Order ${o.id}`, `
+		<div class="grid gap-2">
+		  <div><b>Customer:</b> ${o.customer}</div>
+		  <div><b>Email:</b> ${o.email || ''}</div>
+		  <div><b>Contact:</b> ${o.contact}</div>
+		  <div><b>Address:</b> ${o.address}</div>
+		  <div><b>Date:</b> ${o.date}</div>
+		<div class="pt-2"><b>Items</b><ul class="mt-2">${items}</ul></div>
+		<div class="pt-2"><b>Total:</b> ${formatPeso(o.total)}</div>
+		<div class="pt-2"><b>Status:</b> <span class="badge bg-gray-100 text-gray-800 px-2 py-1 rounded">${o.status}</span></div>
+		</div>
+	`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Close</button><button onclick="adminEditOrder('${o.id}')" class="px-4 py-2 bg-lime-600 text-white rounded">Update Status</button>`);
+	}
+ 
+	function adminEditOrder(id){
+		if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		const o = orders.find(x=> x.id === id);
+		if(!o) return;
+		const statuses = ['Preparing Order', 'Ready to Deliver', 'Out for Delivery', 'Delivered'];
+		const options = statuses.map(s => `<option value="${s}" ${s === o.status ? 'selected' : ''}>${s}</option>`).join('');
+		showModal(`Update ${o.id}`, `
+		<div>
+		  <div class="mb-2">Current status: <b>${o.status}</b></div>
+		  <select id="order-new-status" class="p-2 border rounded w-full">${options}</select>
+		</div>
+	`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button><button onclick="adminSaveOrderStatus('${o.id}')" class="px-4 py-2 bg-lime-600 text-white rounded">Save</button>`);
+	}
+ 
+	function adminSaveOrderStatus(id){
+		if(!currentUser || currentUser.role !== 'admin') return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+		const newS = $('#order-new-status').value;
+		const idx = orders.findIndex(x=> x.id === id);
+		if(idx >= 0){
+			orders[idx].status = newS;
+			save('orders', orders);
+		}
+		hideModal();
+		renderMain();
+	}
+	
+
+	function adminDeleteOrder(id) {
+		if (!currentUser || currentUser.role !== 'admin') {
+	  return showModal('Forbidden', 'Admin access required.', 
+		  `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+	 }
+ 
+ 	 showModal('Confirm Delete', 
+	  `Are you sure you want to delete this order <b>${id}</b>? This action cannot be undone.`,
+	  `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Cancel</button>
+	   <button onclick="adminConfirmDeleteOrder('${id}')" class="px-4 py-2 bg-red-600 text-white rounded">Delete</button>`
+	 );
+	}
+ 	
+	function adminConfirmDeleteOrder(id) {
+  
+    const orderToDelete = orders.find(o => o.id === id);
+    const deleteLogs = load('deleteLogs', []);
+    deleteLogs.unshift({
+        id: 'DEL-' + uid(),
+        itemType: 'order',
+        itemId: id,
+        deletedBy: currentUser ? currentUser.email : 'unknown',
+        date: new Date().toLocaleString(),
+        snapshot: orderToDelete || null
+    });
+    save('deleteLogs', deleteLogs);
+
+    orders = orders.filter(o => o.id !== id);
+    save('orders', orders);
+    hideModal();
+    renderMain();
+}
+
+    function viewDeleteLogs(){
+    if(!currentUser || currentUser.role !== 'admin'){
+        return showModal('Forbidden', 'Admin access required.', `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">OK</button>`);
+    }
+    const logs = load('deleteLogs', []);
+    if(!logs.length){
+        return showModal('Deletion Logs', '<div class="text-gray-600">No deletions recorded yet.</div>', `<button onclick="hideModal()" class="px-4 py-2 bg-lime-600 text-white rounded">Close</button>`);
+    }
+    const tableRows = logs.map(l => `
+        <tr class="border-b">
+            <td class="p-2">${l.id}</td>
+            <td class="p-2">${l.itemType || ''}</td>
+            <td class="p-2">${l.itemId || ''}</td>
+            <td class="p-2">${l.deletedBy}</td>
+            <td class="p-2">${l.date}</td>
+        </tr>
+    `).join('');
+    const tableHtml = `
+        <div class="max-h-80 overflow-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-gray-100 text-gray-700 sticky top-0">
+              <tr>
+                <th class="p-2">Log ID</th>
+                <th class="p-2">Type</th>
+                <th class="p-2">Item ID</th>
+                <th class="p-2">Deleted By</th>
+                <th class="p-2">Date</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </div>`;
+    showModal('Deletion Logs', tableHtml, `<button onclick="hideModal()" class="px-4 py-2 bg-lime-600 text-white rounded">Close</button>`);
+}
+
+
+ 
+
+	function renderMain(){
+		const main = $('#main-content');
+		updateAuthArea();
+
+		const viewOrdersBtn = $('#view-orders');
+		if(currentUser && currentUser.role === 'admin'){
+			viewOrdersBtn.classList.remove('hidden');
+			viewOrdersBtn.textContent = 'Orders (All)';
+		} else if(currentUser){
+			viewOrdersBtn.classList.remove('hidden');
+			viewOrdersBtn.textContent = 'My Orders';
+		} else {
+			viewOrdersBtn.classList.add('hidden');
+		}
+
+		updatePreorderStatuses();
+ 
+		if(currentUser && currentUser.role === 'admin' && view === 'admin'){
+			main.innerHTML = renderAdminDashboard();
+		} else {
+			if(view === 'shop') main.innerHTML = renderShop();
+			else main.innerHTML = renderOrdersPublic();
+		}
+		icons();
+		updateCartBadge();
+		renderCartDrawer();
+	}
+ 
+	function switchTo(v){
+		view = v;
+		renderMain();
+	}
+ 
+	function renderShop(){
+    const grid = products.length ? products.map(p => {
+        const lowStock = p.quantity <= 5;
+        const isPre = !!p.preorder;
+        const rem = isPre ? computeRemainingDays(p) : null;
+        const badgeHtml = isPre ? `<div class="badge bg-yellow-100 text-yellow-700">🟡 Pre-Order • ${rem>0? rem + ' days left' : 'Ending'}</div>` : '';
+
+        const isAdminViewing = currentUser && currentUser.role === 'admin';
+        const addButton = (isAdminViewing && !isPre)
+            ? `<button class="px-3 py-1.5 rounded-md bg-lime-200 text-lime-800 text-sm cursor-not-allowed" disabled>View only</button>`
+            : (!isPre ? `<button onclick="addToCart(${p.id},1)" class="px-3 py-1.5 rounded-md bg-lime-600 text-white text-sm">Add</button>` : 
+                (isAdminViewing 
+                    ? `<button class="px-3 py-1.5 rounded-md bg-yellow-200 text-yellow-800 text-sm cursor-not-allowed" disabled>View only</button>` 
+                    : `<button onclick="preOrderItem(${p.id},1)" class="px-3 py-1.5 rounded-md bg-yellow-400 text-white text-sm">Pre-Order</button>`));
+        return `
+            <div class="card bg-white rounded-xl border p-3 flex flex-col">
+                <div class="h-40 w-full rounded-md overflow-hidden bg-gray-50 relative">
+                  <img src="${p.imgUrl}" alt="${p.name}" class="w-full h-full object-cover">
+                  <div class="absolute top-3 left-3">${badgeHtml}</div>
+                  </div>
+                <div class="mt-3 flex-1">
+                  <div class="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 class="font-semibold text-lg text-gray-800">${p.name}</h3>
+                        <div class="text-sm text-gray-500">${p.origin} • <span class="font-medium">${p.farmer.name}</span></div>
+                      </div>
+                       <div class="text-right">
+                        <div class="text-lime-700 font-extrabold text-lg">${formatPeso(p.price)}</div>
+                        <div class="text-xs text-gray-500 text-right">${p.unit}</div>
+                      </div>
+                    </div>
+                   <div class="mt-3 flex items-center justify-between">
+                        <div class="text-sm ${lowStock ? 'text-red-500' : 'text-gray-500'}">${p.quantity} ${p.unit}${p.quantity>1?'s':''} available</div>
+                        <div class="flex items-center gap-2">
+                          ${addButton}
+                          <button onclick="${isAdminViewing ? `showProduct(${p.id})` : `showProduct(${p.id})`}" class="px-3 py-1.5 rounded-md bg-white border text-sm">Details</button>
+                        </div>
+                      </div>
+                    </div>
+                </div>
+            `;
+    }).join('') : `<div class="col-span-full text-center py-12 text-gray-500">No products available.</div>`;
+
+    return `
+        <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-2xl font-bold text-gray-800">Marketplace</h2>
+            <div class="text-sm text-gray-500">Fresh products from local farms</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            ${grid}
+        </div>
+        </section>
+    `;
+}
+
+ 
+	function showProduct(id){
+    const p = products.find(x=>x.id===id);
+    if(!p) return;
+
+    const lowStock = p.quantity <= 5;
+    const isPre = !!p.preorder;
+    const rem = isPre ? computeRemainingDays(p) : null;
+    const badgeHtml = isPre ? `<div class="badge bg-yellow-100 text-yellow-700 mb-2">🟡 Pre-Order • ${rem>0 ? rem + ' days left' : 'Ending'}</div>` : '';
+    
+
+    const isAdminViewing = currentUser && currentUser.role === 'admin';
+
+ 
+    let actionButton = '';
+    if(!isAdminViewing){
+        if(isPre){
+            actionButton = `<button onclick="preOrderItem(${p.id},1)" class="px-4 py-2 bg-yellow-400 text-white rounded">Pre-Order</button>`;
+        } else {
+            actionButton = `<button onclick="addToCart(${p.id},1)" class="px-4 py-2 bg-lime-600 text-white rounded">Add to Cart</button>`;
+        }
+    }
+
+    showModal(
+        p.name,
+        `
+        <div class="grid gap-4">
+            <div class="rounded overflow-hidden">
+                <img src="${p.imgUrl}" alt="${p.name}" class="w-full h-48 object-cover rounded">
+            </div>
+            <div>
+                ${badgeHtml}
+                <div class="text-gray-700 text-sm mb-1">${p.origin}</div>
+                <div class="text-gray-500 text-sm mb-1">Farmer: <b>${p.farmer.name}</b> (${p.farmer.contact})</div>
+                <div class="text-gray-700 text-sm mb-1">Price: <b>${formatPeso(p.price)}</b> / ${p.unit}</div>
+                <div class="text-gray-700 text-sm mb-1">Stock: <b class="${lowStock?'text-red-500':''}">${p.quantity}</b> ${p.unit}${p.quantity>1?'s':''}</div>
+                ${isPre ? `<div class="text-yellow-600 text-sm">Pre-Order available in ${rem>0? rem : 0} day(s)</div>` : ''}
+            </div>
+        </div>
+        `,
+        `
+        <button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Close</button>
+        ${actionButton}
+        `
+    );
+}
+
+ 
+
+	function renderOrdersPublic(){
+		let list = [];
+		if(currentUser && currentUser.role === 'admin'){
+			list = orders;
+		} else if(currentUser){
+			list = orders.filter(o => o.email === currentUser.email);
+		} else {
+		
+			return `
+          <section>
+         	<div class="flex items-center justify-between mb-4">
+           	<h2 class="text-2xl font-bold">Orders</h2>
+           	<div class="text-sm text-gray-500">Log in to see your orders</div>
+            </div>
+      	   <div class="bg-white rounded-xl p-6 border text-gray-600">Please <button onclick="openAuth('login')" class="underline">log in</button> or <button onclick="openAuth('signup')" class="underline">sign up</button> to view and track your orders.</div>
+   	    </section>
+     	`;
+		}
+ 
+	
+		if(currentUser && currentUser.role === 'customer'){
+			const html = list.length ? list.map(o => {
+				const itemsHtml = o.items.map(it => `<li class="flex justify-between py-1"><span>${it.quantity} × ${it.name} (${it.unit})</span><span>${formatPeso(it.price * it.quantity)}</span></li>`).join('');
+				return `
+				<div class="bg-white rounded-xl p-4 border mb-3">
+				  <div class="flex items-center justify-between">
+				    <div><b>${o.id}</b> • ${o.customer}</div>
+				    <div class="text-lime-700 font-semibold">${formatPeso(o.total)}</div>
+				  </div>
+				  <div class="mt-2 text-sm text-gray-500">Date: ${o.date}</div>
+				  <div class="mt-3">
+				    <div class="font-medium">Items</div>
+				  	<ul class="mt-2 border rounded p-3 bg-gray-50">
+				      ${itemsHtml}
+				    </ul>
+				  </div>
+				  <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+				    <div><b>Contact</b><br>${o.contact}</div>
+				    <div><b>Address</b><br>${o.address}</div>
+				  </div>
+				  <div class="mt-3">
+				    <div class="inline-flex items-center gap-3">
+				      <div class="px-3 py-1 rounded bg-gray-100 text-gray-800">${o.status}</div>
+				      <button onclick="viewOrderDetail('${o.id}')" class="px-3 py-1 rounded bg-white border text-sm">View</button>
+				    </div>
+				  </div>
+				</div>
+				`;
+			}).join('') : `<div class="text-gray-500">You have no orders yet.</div>`;
+ 
+			return `
+          <section>
+         	<div class="flex items-center justify-between mb-4">
+           	<h2 class="text-2xl font-bold">My Orders</h2>
+           	<div class="text-sm text-gray-500">Order history & tracking</div>
+            </div>
+         	${html}
+          </section>
+     	`;
+		}
+ 
+
+		const html = list.length ? list.map(o => `
+		<div class="bg-white rounded-xl p-4 border mb-3">
+			<div class="flex items-center justify-between">
+			  <div><b>${o.id}</b> • ${o.customer}</div>
+			  <div class="text-lime-700 font-semibold">${formatPeso(o.total)}</div>
+			</div>
+    	   <div class="text-sm text-gray-500 mt-2">Status: <span class="px-2 py-1 rounded bg-gray-100 text-gray-800">${o.status}</span></div>
+			<div class="mt-2 text-sm">
+			  <button onclick="viewOrderDetail('${o.id}')" class="px-3 py-1 rounded bg-white border text-sm">View</button>
+			  ${currentUser && currentUser.role === 'admin' ? `<button onclick="adminEditOrder('${o.id}')" class="px-3 py-1 rounded bg-lime-600 text-white text-sm ml-2">Update</button>` : ''}
+			</div>
+		</div>
+		`).join('') : `<div class="text-gray-500">No orders to display.</div>`;
+ 
+		return `
+        <section>
+       	<div class="flex items-center justify-between mb-4">
+         	<h2 class="text-2xl font-bold">Orders</h2>
+         	<div class="text-sm text-gray-500">Order history</div>
+       	</div>
+       	${html}
+        </section>
+   	`;
+	}
+ 
+	function viewOrderDetail(id){
+		const o = orders.find(x=> x.id === id);
+		if(!o) return;
+		const items = o.items.map(it => `<li class="flex justify-between py-1"><span>${it.quantity} × ${it.name} (${it.unit})</span><span>${formatPeso(it.price * it.quantity)}</span></li>`).join('');
+		const actions = (currentUser && currentUser.role === 'admin') ? `<button onclick="adminEditOrder('${o.id}')" class="px-4 py-2 bg-lime-600 text-white rounded">Update Status</button>` : '';
+		showModal(`Order ${o.id}`, `
+		<div class="grid gap-2">
+		  <div><b>Customer:</b> ${o.customer}</div>
+		  <div><b>Contact:</b> ${o.contact}</div>
+		  <div><b>Address:</b> ${o.address}</div>
+		  <div><b>Date:</b> ${o.date}</div>
+		<div class="pt-2"><b>Items</b><ul class="mt-2">${items}</ul></div>
+		<div class="pt-2"><b>Total:</b> ${formatPeso(o.total)}</div>
+		<div class="pt-2"><b>Status:</b> <span class="badge bg-gray-100 text-gray-800 px-2 py-1 rounded">${o.status}</span></div>
+		</div>
+	`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Close</button>${actions}`);
+	}
+ 
+	function renderAdminDashboard(){
+    if(!currentUser || currentUser.role !== 'admin') return `<div class="bg-white rounded-xl p-6 border">Admin access required.</div>`;
+    const totalSales = orders.filter(o => o.status === 'Delivered').reduce((s,o) => s + Number(o.total), 0);
+    const pending = orders.filter(o => o.status !== 'Delivered').length;
+    const stockValue = products.reduce((s,p) => s + (p.price * p.quantity), 0);
+
+    const regular = products.filter(p => !p.preorder);
+    const preorderList = products.filter(p => p.preorder);
+
+    const regularRows = regular.map(p => `
+        <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">${p.name}</td>
+        <td class="px-4 py-3">${p.origin}</td>
+        <td class="px-4 py-3">${p.farmer.name} / ${p.farmer.contact}</td>
+        <td class="px-4 py-3">${formatPeso(p.price)}</td>
+        <td class="px-4 py-3">${p.quantity} ${p.unit}</td>
+        <td class="px-4 py-3 text-right">
+            <button onclick="adminEditProduct(${p.id})" class="px-2 py-1 text-sm bg-white border rounded mr-2">Edit</button>
+            <button onclick="adminDeleteProduct(${p.id})" class="px-2 py-1 text-sm bg-red-50 text-red-600 rounded">Delete</button>
+        </td>
+        </tr>
+    `).join('');
+
+    const preorderRows = preorderList.map(p => {
+        const rem = computeRemainingDays(p);
+        return `
+        <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">${p.name}</td>
+        <td class="px-4 py-3">${p.origin}</td>
+        <td class="px-4 py-3">${p.farmer.name} / ${p.farmer.contact}</td>
+        <td class="px-4 py-3">${formatPeso(p.price)}</td>
+        <td class="px-4 py-3">${p.quantity} ${p.unit}</td>
+        <td class="px-4 py-3">${rem>0? rem + ' days left' : 'Ending'}</td>
+        <td class="px-4 py-3 text-right">
+            <button onclick="adminEditProduct(${p.id})" class="px-2 py-1 text-sm bg-white border rounded mr-2">Edit</button>
+            <button onclick="adminDeleteProduct(${p.id})" class="px-2 py-1 text-sm bg-red-50 text-red-600 rounded">Delete</button>
+        </td>
+        </tr>
+    `;
+    }).join('');
+
+    const regularOrders = orders.filter(o => !o.type || o.type !== 'pre-order');
+    const preorderOrders = orders.filter(o => o.type === 'pre-order');
+
+    const regularOrderRows = regularOrders.map(o => `
+        <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">${o.id}</td>
+        <td class="px-4 py-3">${o.customer}</td>
+        <td class="px-4 py-3">${formatPeso(o.total)}</td>
+        <td class="px-4 py-3">${o.status}</td>
+        <td class="px-4 py-3">${o.date}</td>
+        <td class="px-4 py-3 text-right">
+            <button onclick="adminViewOrder('${o.id}')" class="px-2 py-1 text-sm bg-white border rounded mr-2">View</button>
+            <button onclick="adminEditOrder('${o.id}')" class="px-2 py-1 text-sm bg-lime-600 text-white rounded mr-2">Update</button>
+            <button onclick="adminDeleteOrder('${o.id}')" class="px-2 py-1 text-sm bg-red-50 text-red-600 rounded">Delete</button>
+        </td>
+        </tr>
+    `).join('');
+
+    const preorderOrderRows = preorderOrders.map(o => `
+        <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3">${o.id}</td>
+        <td class="px-4 py-3">${o.customer}</td>
+        <td class="px-4 py-3">${formatPeso(o.total)}</td>
+        <td class="px-4 py-3">${o.status}</td>
+        <td class="px-4 py-3">${o.date}</td>
+        <td class="px-4 py-3 text-right">
+            <button onclick="adminViewOrder('${o.id}')" class="px-2 py-1 text-sm bg-white border rounded mr-2">View</button>
+            <button onclick="adminEditOrder('${o.id}')" class="px-2 py-1 text-sm bg-lime-600 text-white rounded mr-2">Update</button>
+            <button onclick="adminDeleteOrder('${o.id}')" class="px-2 py-1 text-sm bg-red-50 text-red-600 rounded">Delete</button>
+        </td>
+        </tr>
+    `).join('');
+
+    return `
+    <section>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-2xl font-bold">Admin Dashboard</h2>
+        <div>
+          <button onclick="adminAddProduct()" class="px-3 py-2 bg-lime-600 text-white rounded">Add Product</button>
+          <button onclick="viewDeleteLogs()" class="px-4 py-2 bg-white border text-gray-700 rounded hover:bg-gray-100 ml-2">View Deletion Logs</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-xl p-4 shadow-sm border">
+          <div class="text-sm text-gray-500">Total Sales (Delivered)</div>
+          <div class="text-xl font-bold text-lime-700 mt-2">${formatPeso(totalSales)}</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border">
+          <div class="text-sm text-gray-500">Total Orders</div>
+          <div class="text-xl font-bold mt-2">${orders.length}</div>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border">
+          <div class="text-sm text-gray-500">Pending Orders</div>
+          <div class="text-xl font-bold mt-2">${pending}</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl p-4 border">
+          <h3 class="font-semibold mb-3">Products — Regular</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-left">
+              <thead class="text-xs text-gray-500 uppercase">
+                <tr><th class="px-4 py-3">Name</th><th class="px-4 py-3">Origin</th><th class="px-4 py-3">Farmer</th><th class="px-4 py-3">Price</th><th class="px-4 py-3">Stock</th><th class="px-4 py-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody>
+                ${regularRows || '<tr><td class="px-4 py-6 text-center text-gray-500" colspan="6">No products</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border">
+          <h3 class="font-semibold mb-3">Products — Pre-Order</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-left">
+              <thead class="text-xs text-gray-500 uppercase">
+                <tr><th class="px-4 py-3">Name</th><th class="px-4 py-3">Origin</th><th class="px-4 py-3">Farmer</th><th class="px-4 py-3">Price</th><th class="px-4 py-3">Stock</th><th class="px-4 py-3">Remaining</th><th class="px-4 py-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody>
+                ${preorderRows || '<tr><td class="px-4 py-6 text-center text-gray-500" colspan="7">No pre-order products</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl p-4 border">
+          <h3 class="font-semibold mb-3">Orders — Regular</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-left">
+              <thead class="text-xs text-gray-500 uppercase">
+                <tr><th class="px-4 py-3">Order</th><th class="px-4 py-3">Customer</th><th class="px-4 py-3">Total</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Date</th><th class="px-4 py-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody>
+                ${regularOrderRows || '<tr><td class="px-4 py-6 text-center text-gray-500" colspan="6">No orders</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl p-4 border">
+          <h3 class="font-semibold mb-3">Orders — Pre-Order</h3>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-left">
+              <thead class="text-xs text-gray-500 uppercase">
+                <tr><th class="px-4 py-3">Order</th><th class="px-4 py-3">Customer</th><th class="px-4 py-3">Total</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Date</th><th class="px-4 py-3 text-right">Actions</th></tr>
+              </thead>
+              <tbody>
+                ${preorderOrderRows || '<tr><td class="px-4 py-6 text-center text-gray-500" colspan="6">No pre-order orders</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+    `;
+}
+
+ 
+	function toggleHowItWorks(){
+		showModal('How Palengke.com Works', `
+		<ol class="list-decimal pl-5 text-gray-700">
+          <li>Browse fresh products from local farmers & fisherfolk.</li>
+          <li>Add items to cart and proceed to checkout (COD).</li>
+          <li>LGU Admin manages product listings and order statuses.</li>
+     	</ol>
+	`, `<button onclick="hideModal()" class="px-4 py-2 bg-gray-100 rounded">Close</button>`);
+	}
+ 
+
+    window.addEventListener('load', () => {
+		seed();
+		updateAuthArea();
+		renderMain();
+		icons();
+	});
+ 
+    document.getElementById('modal-overlay').addEventListener('click', (e) => {
+		if (e.target === e.currentTarget) hideModal();
+	});
+ 
+    window.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			hideModal();
+			$('#cart-drawer').classList.add('hidden');
+		}
+	});
+ 
+  </script>
+ 
+</body>
+</html>
+
+
