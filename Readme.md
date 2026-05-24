@@ -23,25 +23,7 @@ python -m http.server 8080
 
 All data is stored in `localStorage` under the key prefix `palengke_cainta_v4`.
 
-## Repository structure
 
-```
-palengke/
-├── index.html          # HTML shell — structure only
-├── css/
-│   ├── main.css        # CSS variables, layout, scrollbar, badge
-│   └── card.css        # .card hover effect
-├── js/
-│   ├── storage.js      # save() / load() over localStorage
-│   ├── state.js        # Shared mutable state (products, orders, cart, users, currentUser, view)
-│   ├── ui.js           # DOM helpers, modal, icons, formatPeso, uploadImagePreview
-│   ├── auth.js         # Login, signup, logout, header auth area, admin navigation
-│   ├── cart.js         # Add/remove/change cart items, drawer, checkout, placeOrder
-│   ├── render.js       # renderMain, renderShop, renderOrdersPublic, showProduct, viewOrderDetail
-│   ├── admin.js        # Admin dashboard, product/order CRUD, deletion logs
-│   └── app.js          # seed(), window.onload bootstrap, global event listeners
-└── README.md
-```
 
 ### Script load order
 
